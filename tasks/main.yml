@@ -1,0 +1,194 @@
+---
+# TODO: Download and install docker-machine
+- name: Gather facts if we haven't done so in debugging mode
+  setup:
+  when: ansible_system is not defined
+
+# [[[ compose
+- name: Install docker-compose
+  block:
+    - name: Preset docker_compose_installed_version so it's global
+      set_fact:
+        docker_compose_installed_version: "0.0.0"
+
+    - name: Try to run installed compose to get its version
+      command: "{{ docker_compose_path }}/docker-compose --version"
+      register: docker_compose_is_installed
+      ignore_errors: True
+      changed_when: False
+
+    - name: Discover installed docker-compose release
+      block:
+        - name: Construct compose Release RegEx
+          set_fact:
+            docker_compose_installed_version_regex: "{{ '^docker-compose version ([0-9\\.]+),.*$' }}"
+        - name: Discover installed compose version
+          set_fact:
+            docker_compose_installed_version: "{{ docker_compose_is_installed.stdout | regex_replace(docker_compose_installed_version_regex, '\\1') }}"
+        - name: Output installed compose release if verbosity >= 1
+          debug:
+            msg: "Installed compose release is {{ docker_compose_installed_version }}"
+            verbosity: 1
+      when: docker_compose_is_installed.failed is not defined or not docker_compose_is_installed.failed
+
+    - name: Discover latest compose release
+      block:
+        - name: Get latest release version from Github
+          uri:
+            url: https://api.github.com/repos/docker/compose/releases/latest
+            body_format: json
+          register: docker_compose_release_github
+          no_log: True
+        - name: Construct GitHub Release RegEx
+          set_fact:
+            docker_compose_release_regex: "{{ '^.*/download/([0-9\\.]+)/.*$' }}"
+        - name: Extract compose latest release
+          set_fact:
+            docker_compose_release_github: "{{ docker_compose_release_github.json.assets[0].browser_download_url | regex_replace(docker_compose_release_regex, '\\1') }}"
+        - name: Output compose latest release if verbosity >= 1
+          debug:
+            msg: "Latest compose release on GitHub is {{ docker_compose_release_github }}"
+            verbosity: 1
+      when: docker_compose_release == 'latest'
+
+    - name: Download and install docker-compose
+      block:
+        - name: Set docker_compose_release to latest from GitHub
+          set_fact:
+            docker_compose_release: "{{ docker_compose_release_github }}"
+          when: docker_compose_release_github is defined
+        - name: Download compose
+          get_url:
+            url: "https://github.com/docker/compose/releases/download/{{ docker_compose_release }}/docker-compose-{{ ansible_system }}-{{ansible_architecture}}"
+            dest: "{{ docker_compose_path }}/docker-compose"
+            mode: 0755
+            owner: root
+            group: root
+            force: yes
+          become: True
+      when: >
+        ((docker_compose_release == 'latest' and docker_compose_installed_version != docker_compose_release_github) or
+        (docker_compose_release != 'latest' and docker_compose_release != docker_compose_installed_version)) or docker_compose_installed_version == "0.0.0"
+  when: docker_compose_install
+# ]]]
+
+# [[[ machine
+- name: Install docker-machine
+  block:
+    - name: Preset docker_machine_installed_version so it's global
+      set_fact:
+        docker_machine_installed_version: "0.0.0"
+
+    - name: Try to run installed machine to get its version
+      command: "{{ docker_machine_path }}/docker-machine --version"
+      register: docker_machine_is_installed
+      ignore_errors: True
+      changed_when: False
+
+    - name: Discover installed docker-machine release
+      block:
+        - name: Construct machine Release RegEx
+          set_fact:
+            docker_machine_installed_version_regex: "{{ '^docker-machine version ([0-9\\.]+),.*$' }}"
+        - name: Discover installed machine version
+          set_fact:
+            docker_machine_installed_version: "{{ docker_machine_is_installed.stdout | regex_replace(docker_machine_installed_version_regex, '\\1') }}"
+        - name: Output installed machine release if verbosity >= 1
+          debug:
+            msg: "Installed machine release is {{ docker_machine_installed_version }}"
+            verbosity: 1
+      when: docker_machine_is_installed.failed is not defined or not docker_machine_is_installed.failed
+
+    - name: Discover latest machine release
+      block:
+        - name: Get latest release version from Github
+          uri:
+            url: https://api.github.com/repos/docker/machine/releases/latest
+            body_format: json
+          register: docker_machine_release_github
+          no_log: True
+        - name: Construct GitHub Release RegEx
+          set_fact:
+            docker_machine_release_regex: "{{ '^.*/download/v([0-9\\.]+)/.*$' }}"
+        - name: Extract machine latest release
+          set_fact:
+            docker_machine_release_github: "{{ docker_machine_release_github.json.assets[0].browser_download_url | regex_replace(docker_machine_release_regex, '\\1') }}"
+        - name: Output compose latest release if verbosity >= 1
+          debug:
+            msg: "Latest compose release on GitHub is {{ docker_machine_release_github }}"
+            verbosity: 1
+      when: docker_machine_release == 'latest'
+
+    - name: Download and install docker-machine
+      block:
+        - name: Set docker_machine_release to latest from GitHub
+          set_fact:
+            docker_machine_release: "{{ docker_machine_release_github }}"
+          when: docker_machine_release_github is defined
+        - name: Download machine
+          get_url:
+            url: "https://github.com/docker/machine/releases/download/v{{ docker_machine_release }}/docker-machine-{{ ansible_system }}-{{ansible_architecture}}"
+            dest: "{{ docker_machine_path }}/docker-machine"
+            mode: 0755
+            owner: root
+            group: root
+            force: yes
+          become: True
+      when: >
+        ((docker_machine_release == 'latest' and docker_machine_installed_version != docker_machine_release_github) or
+        (docker_machine_release != 'latest' and docker_machine_release != docker_machine_installed_version)) or docker_machine_installed_version == "0.0.0"
+  when: docker_machine_install
+# ]]]
+
+# [[[ engine
+- name: Install, enable and start docker (Debian based)
+  block:
+    - name: Ensure apt-transport-https and ca-certificates are installed
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - apt-transport-https
+        - ca-certificates
+
+    - name: Add Docker Repository key
+      apt_key:
+        url: "https://download.docker.com/linux/{{ ansible_distribution|lower }}/gpg"
+
+    - name: Work around buster having a distribution tag of 'NA'
+      set_fact:
+        ansible_distribution_release: 'stretch'
+      when: ansible_distribution_release == 'NA'
+
+    - name: Add Docker Repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/{{ansible_distribution|lower}} {{ ansible_distribution_release }} {{ docker_channel }}
+        update_cache: yes
+
+    - name: Install Docker
+      apt:
+        name: "docker-{{ docker_edition }}"
+        state: present
+  become: True
+  when: ansible_distribution in ('Ubuntu', 'Debian')
+# ]]]
+
+- name: Install, enable and start docker (Fedora)
+  block:
+    - name: Download docker-ce repo file
+      get_url:
+        url: https://download.docker.com/linux/fedora/docker-ce.repo
+        dest: /etc/yum.repos.d/docker-ce.repo
+
+    - name: Install Docker
+      dnf:
+        name: docker-ce
+        state: present
+  when: ansible_distribution == 'Fedora'
+
+- name: Start and enable Docker
+  service:
+    name: docker
+    state: started
+    enabled: True
+# vim: foldmarker=[[[,]]]

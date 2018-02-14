@@ -1,0 +1,9 @@
+---
+docker_edition: "ce"
+docker_channel: "edge"
+docker_compose_install: True
+docker_compose_release: "latest"
+docker_compose_path: /usr/local/bin
+docker_machine_install: False
+docker_machine_release: "latest"
+docker_machine_path: /usr/local/bin
