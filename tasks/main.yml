@@ -164,7 +164,7 @@
 
     - name: Install Docker
       apt:
-        name: "docker-{{ docker_edition }}"
+        name: "docker-{{ docker_edition }} docker-{{ docker_edition }}-cli containerd.io"
         state: present
   become: True
   when: ansible_distribution in ('Ubuntu', 'Debian')
@@ -179,7 +179,7 @@
 
     - name: Install Docker
       dnf:
-        name: docker-ce
+        name: "docker-ce docker-ce-cli containerd.io"
         state: present
   when: ansible_distribution == 'Fedora'
 
