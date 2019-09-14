@@ -182,10 +182,12 @@
         name: "docker-ce docker-ce-cli containerd.io"
         state: present
   when: ansible_distribution == 'Fedora'
+  become: true
 
 - name: Start and enable Docker
   service:
     name: docker
     state: started
     enabled: True
+  become: true
 # vim: foldmarker=[[[,]]]
